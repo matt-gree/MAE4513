@@ -1,49 +1,54 @@
 import matplotlib.pyplot as plt
-from scipy.integrate import quad
+from scipy.integrate import simpson
 import numpy as np
+import pandas as pd
+from sympy import SingularityFunction
 
 class Wing:
     def __init__(self):
         self.beam_length = 10
         self.beam_Ix = 10
-        
-    def lift_distribution(self, x):
-        self.linear_load = 500*(1 - x/self.beam_length)
-        return self.linear_load
-    
-    def shear_function(self, x):
-        self.root_shear, err = quad(self.lift_distribution, 0, self.beam_length)
-        return quad(self.lift_distribution, 0, x)[0] - self.root_shear
+        self.beam_load_dataframe = pd.DataFrame(columns=['x_loc', 'Load', 'Shear', 'Moment'])
+        self.beam_load_dataframe.x_loc = np.linspace(0, self.beam_length, 10000)
 
-    def cantilever_solve(self):
-        self.root_shear, err = quad(self.lift_distribution, 0, self.beam_length)
-        self.root_moment, err = quad(self.shear_function, 0, self.beam_length)
+    def load_function(self):
+        for index, data in self.beam_load_dataframe.iterrows():
+            if data['x_loc'] < 4:
+                self.beam_load_dataframe.loc[index, 'Load'] = 500*(1-data['x_loc']/self.beam_length)
+            elif data[0] < 6:
+                self.beam_load_dataframe.loc[index, 'Load'] = 500*(1-data['x_loc']/self.beam_length)-300
+            else:
+                self.beam_load_dataframe.loc[index, 'Load'] = 500*(1-data['x_loc']/self.beam_length)
+
+
+    def shear_values(self):
+        self.root_shear = simpson(self.beam_load_dataframe.Load, self.beam_load_dataframe.x_loc)
+        for index, data in self.beam_load_dataframe.iterrows():
+            if index == 0:
+                self.beam_load_dataframe.loc[index, "Shear"] = -self.root_shear
+                continue
+
+            self.beam_load_dataframe.loc[index, "Shear"] = simpson(self.beam_load_dataframe.Load[0:index], self.beam_load_dataframe.x_loc[0:index]) - self.root_shear
+
+    def moment_values(self):
+        self.root_moment = simpson(self.beam_load_dataframe.Shear, self.beam_load_dataframe.x_loc)
+        for index, data in self.beam_load_dataframe.iterrows():
+            if index == 0:
+                self.beam_load_dataframe.loc[index, "Moment"] = -self.root_moment
+                continue
+
+            self.beam_load_dataframe.loc[index, "Moment"] = simpson(self.beam_load_dataframe.Shear[0:index], self.beam_load_dataframe.x_loc[0:index]) - self.root_moment
 
     def cantilever_graph(self):
-        x = np.arange(0, self.beam_length, 0.001)
-        def integrate(x):
-            shear = np.zeros_like(x)
-            moment = np.zeros_like(x)
-            for i, val in enumerate(x):
-                y_shear, err = quad(self.lift_distribution, 0, val)
-                y_shear -= self.root_shear
-                shear[i]=y_shear
-
-                y_moment, err = quad(self.shear_function, 0, val)
-                y_moment -= self.root_moment
-                moment[i]=y_moment
-
-            return shear, moment
-
-        plt.plot(x, self.lift_distribution(x))
-        plt.title("Lift Distripution Diagram")
+        plt.plot(self.beam_load_dataframe.x_loc, self.beam_load_dataframe.Load)
+        plt.title("Load Distribution")
         plt.show()
 
-        plt.plot(x, integrate(x)[0])
+        plt.plot(self.beam_load_dataframe.x_loc, self.beam_load_dataframe.Shear)
         plt.title("Shear Diagram")
         plt.show()
 
-        plt.plot(x, integrate(x)[1])
+        plt.plot(self.beam_load_dataframe.x_loc, self.beam_load_dataframe.Moment)
         plt.title("Moment Diagram")
         plt.show()
 
@@ -51,7 +56,9 @@ class Wing:
         
 
 test = Wing()
-test.cantilever_solve()
+test.load_function()
+test.shear_values()
+test.moment_values()
 print(test.root_shear)
 print(test.root_moment)
 test.cantilever_graph()
