@@ -35,18 +35,42 @@ class BeamCrossSection:
             self.total_beam_width = self.radius
             self.total_beam_height = self.radius
 
-class Wing:
+class WingLoad:
     def __init__(self, cross_section_Ix, beam_length):
+
         self.beam_Ix = cross_section_Ix
         self.beam_length = beam_length # inches
         self.modulus_of_elasticity = 10000000 #psi
-        self.beam_load_dataframe = pd.DataFrame(columns=['x_loc', 'Load', 'Shear', 'Moment', 'ddxDeflection', 'Deflection'])
-        self.beam_load_dataframe.x_loc = np.linspace(0, self.beam_length, 100)
+        self.beam_load_dataframe = pd.DataFrame(columns=['x_loc', 'SectionArea' 'Lift_Coeff', 'Load', 'Shear', 'Moment', 'ddxDeflection', 'Deflection'])
+        self.beam_load_dataframe.x_loc = np.linspace(0, self.beam_length, 1001)
+        self.step = self.beam_load_dataframe.x_loc[1]
+        print(self.step)
 
     def load_function(self):
-        for index, data in self.beam_load_dataframe.iterrows():
-                self.beam_load_dataframe.loc[index, 'Load'] = 20*(1-data['x_loc']/self.beam_length)
+        # Flight choices
+        velocity = 293 # ft/s
+        wing_area = 2.687 # ft
+        density = 0.002377 # slug/ft^3
+        lift_coeff = 1.050
 
+        # Wing Design
+        wing_length = 25
+        wing_root = 8.661
+        taper_ratio = 0.727
+        wing_tip = taper_ratio*wing_root
+        wing_slope = ((wing_root-wing_tip)/2)/wing_length
+
+        for index, data in self.beam_load_dataframe.iterrows():
+            self.beam_load_dataframe.loc[index, 'Lift_Coeff'] = (-0.0000002270*data['x_loc']**6
+                                                        + 0.0000155296*data['x_loc']**5
+                                                        - 0.0004019925*data['x_loc']**4
+                                                        + 0.0047874923*data['x_loc']**3
+                                                        - 0.0254196192*data['x_loc']**2
+                                                        + 0.0454462422*data['x_loc']
+                                                        + 1.1222016951)
+            
+            self.beam_load_dataframe.loc[index, 'Area'] = (wing_root-wing_slope*(2*data['x_loc']+self.step))*self.step/144
+            self.beam_load_dataframe.loc[index, 'Load'] = (0.5*self.beam_load_dataframe.loc[index, 'Area']*self.beam_load_dataframe.loc[index, 'Lift_Coeff']*density*velocity**2)/(self.step)
 
     def shear_values(self):
         self.root_shear = simpson(self.beam_load_dataframe.Load, self.beam_load_dataframe.x_loc)
@@ -105,7 +129,7 @@ class Wing:
 
 
         plt.figure(figsize=(8, 8))
-        contour = plt.contourf(X, Y, stress_data, 212, cmap='viridis')
+        contour = plt.contourf(X, Y, stress_data, 60, cmap='viridis')
         plt.colorbar(contour, label='Stress (psi)')  # Add a colorbar
 
         # Add labels and title
@@ -135,10 +159,10 @@ class Wing:
         plt.show()
 
         
-I_beam = BeamCrossSection('I', flange_thickness=0.25, flange_width=0.5, web_thickness=0.25, web_height=0.40)
+I_beam = BeamCrossSection('I', flange_thickness=0.15, flange_width=1.2, web_thickness=0.25, web_height=0.26)
 
 
-OpenSection = Wing(I_beam.beam_Ix, 25)
+OpenSection = WingLoad(I_beam.beam_Ix, 25)
 OpenSection.load_function()
 OpenSection.shear_values()
 OpenSection.moment_values()
