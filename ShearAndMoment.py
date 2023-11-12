@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 class BeamCrossSection:
-    def __init__(self, beam_type, flange_thickness=0, flange_width=0, web_thickness=0, web_height=0, radius=0):
+    def __init__(self, beam_type, flange_thickness=0, flange_width=0, web_thickness=0, web_height=0, radius=0, width=0, height=0, thickness=0):
         self.beam_type = beam_type
 
         self.flange_thickness = flange_thickness
@@ -12,6 +12,7 @@ class BeamCrossSection:
         self.web_thickness = web_thickness
         self.web_height = web_height
         self.radius = radius
+        self.thickness = thickness
 
         if self.beam_type == 'I':
             self.total_beam_width = flange_width
@@ -29,18 +30,25 @@ class BeamCrossSection:
             self.beam_Iy = I_Y2 + 2*I_Y1
             self.area = A_2 + 2* A_1
 
-        elif self.beam_type == 'Circular':
-            self.beam_Ix = 0.25*np.pi*self.radius**4 #in ^4
-            self.beam_Iy = 0.25*np.pi*self.radius**4 #in ^4
-            self.total_beam_width = self.radius
-            self.total_beam_height = self.radius
+        elif self.beam_type == 'Thin-Wall Circle':
+            self.beam_Ix = 0.25*np.pi*(self.radius**4 - (self.radius-self.thickness)**4) # in^4
+            self.beam_Iy = 0.25*np.pi*(self.radius**4 - (self.radius-self.thickness)**4) # in^4
+            self.total_beam_width = self.radius*2
+            self.total_beam_height = self.radius*2
+
+        elif self.beam_type == 'Thin-Wall Rectangle':
+            self.beam_Ix = 2*((1/12)*thickness*height**3 + thickness*width*(height/2)**2)
+            self.total_beam_width = width
+            self.total_beam_height = height
+
 
 class WingLoad:
-    def __init__(self, cross_section_Ix, beam_length):
+    def __init__(self, beam, beam_length):
 
-        self.beam_Ix = cross_section_Ix
+        self.beam = beam
+        self.beam_Ix = beam.beam_Ix
         self.beam_length = beam_length # inches
-        self.modulus_of_elasticity = 10000000 #psi
+        self.modulus_of_elasticity = 10000000 # psi
         self.beam_load_dataframe = pd.DataFrame(columns=['x_loc', 'SectionArea' 'Lift_Coeff', 'Load', 'Shear', 'Moment', 'ddxDeflection', 'Deflection'])
         self.beam_load_dataframe.x_loc = np.linspace(0, self.beam_length, 1001)
         self.step = self.beam_load_dataframe.x_loc[1]
@@ -48,7 +56,7 @@ class WingLoad:
 
     def load_function(self):
         # Flight choices
-        velocity = 293 # ft/s
+        velocity = 300 # ft/s
         wing_area = 2.687 # ft
         density = 0.002377 # slug/ft^3
         lift_coeff = 1.050
@@ -106,31 +114,90 @@ class WingLoad:
             self.beam_load_dataframe.loc[index, "Deflection"] = simpson(self.beam_load_dataframe.ddxDeflection[0:index], self.beam_load_dataframe.x_loc[0:index])/(self.modulus_of_elasticity * self.beam_Ix)
 
     def shear_at_max_moment(self):
-        max_moment = self.beam_load_dataframe['Moment'].max()
-        num_points = 1000  # Number of points to sample within the circle
-        self.beam_Ix
+        if self.beam.beam_type == 'I':
+            max_moment = self.beam_load_dataframe['Moment'].max()
+            num_points = 1000
+            self.beam_Ix
 
-        print(I_beam.total_beam_height)
-        
-        # Create a contour plot of the stress distribution
-        x = np.linspace(-I_beam.total_beam_width/2, I_beam.total_beam_width/2, num_points)
-        y = np.linspace(-I_beam.total_beam_height/2, I_beam.total_beam_height/2, num_points)
-        X, Y = np.meshgrid(x, y)
+            print(self.beam.total_beam_height)
+            
+            # Create a contour plot of the stress distribution
+            x = np.linspace(-self.beam.total_beam_width/2, self.beam.total_beam_width/2, num_points)
+            y = np.linspace(-self.beam.total_beam_height/2, self.beam.total_beam_height/2, num_points)
+            X, Y = np.meshgrid(x, y)
 
-        stress_data = (max_moment / self.beam_Ix) * Y
+            stress_data = (max_moment / self.beam_Ix) * Y
 
-        print(stress_data.max())
-        print(I_beam.area)
+            print(stress_data.max())
+            print(self.beam.area)
 
-        rectangular_mask = (np.abs(X) >= I_beam.web_thickness/2) & (np.abs(Y) <= (I_beam.total_beam_height-2*I_beam.flange_thickness)/2)
+            rectangular_mask = (np.abs(X) >= self.beam.web_thickness/2) & (np.abs(Y) <= (self.beam.total_beam_height-2*self.beam.flange_thickness)/2)
 
-        # Apply the mask to stress data
-        stress_data[rectangular_mask] = np.nan
+            # Apply the mask to stress data
+            stress_data[rectangular_mask] = np.nan
 
 
-        plt.figure(figsize=(8, 8))
-        contour = plt.contourf(X, Y, stress_data, 60, cmap='viridis')
-        plt.colorbar(contour, label='Stress (psi)')  # Add a colorbar
+            plt.figure(figsize=(8, 8))
+            contour = plt.contourf(X, Y, stress_data, 60, cmap='viridis')
+            plt.colorbar(contour, label='Stress (psi)')  # Add a colorbar
+
+        if self.beam.beam_type == 'Thin-Wall Circle':
+            num_points = 1000
+            S_y = self.beam_load_dataframe['Shear'].max()
+            q_so =  S_y/(np.pi*self.beam.radius)
+
+            theta = np.linspace(0, 2 * np.pi, num_points)
+            r = np.linspace(0, self.beam.radius, num_points)
+            R, Theta = np.meshgrid(r, theta)
+
+            stress_data = -(S_y/self.beam.beam_Ix)*self.beam.radius**2*self.beam.thickness*np.cos(Theta)
+
+            rectangular_mask = (R < self.beam.radius-self.beam.thickness)
+            stress_data[rectangular_mask] = np.nan
+
+            X = R * np.cos(Theta)
+            Y = R * np.sin(Theta)
+
+            contour = plt.contourf(X, Y, stress_data, 60, cmap='viridis')
+            plt.colorbar(contour, label='Shear Flow (lb/in)')  # Add a colorbar
+
+
+        if self.beam.beam_type == 'Thin-Wall Rectangle':
+
+            num_points = 1000
+
+            x = np.linspace(-self.beam.total_beam_width/2-self.beam.thickness, self.beam.total_beam_width/2+self.beam.thickness, num_points)
+            y = np.linspace(-self.beam.total_beam_height/2-self.beam.thickness, self.beam.total_beam_height/2+self.beam.thickness, num_points)
+            X, Y = np.meshgrid(x, y)
+
+            S_y = self.beam_load_dataframe['Shear'].max()
+            K = -(S_y * self.beam.thickness)/(2*self.beam.beam_Ix)
+
+            q_so = K * (self.beam.total_beam_height/3) * (self.beam.total_beam_width-(self.beam.total_beam_height/4))
+            q_s_12 = K*Y + q_so
+            
+            rectangular_mask = (X > -self.beam.total_beam_width/2) & (np.abs(Y) > self.beam.total_beam_height)
+            q_s_12[rectangular_mask] = 0
+
+            q_s_23 = K*(self.beam.total_beam_height*(X+self.beam.total_beam_width/2)-0.25*self.beam.total_beam_height**2) + q_so
+            rectangular_mask = (Y < self.beam.total_beam_height/2) & (np.abs(X) > self.beam.total_beam_width)
+            q_s_23[rectangular_mask] = 0
+
+            q_s_34 = K*(-(Y-self.beam.total_beam_height/2)**2+self.beam.total_beam_height*(Y-self.beam.total_beam_height/2)+self.beam.total_beam_height*self.beam.total_beam_width-0.25*self.beam.total_beam_height**2) + q_so
+            rectangular_mask = (X < self.beam.total_beam_width/2) & (np.abs(Y) > self.beam.total_beam_height)
+            q_s_34[rectangular_mask] = 0
+
+            q_s_56 = K*(self.beam.total_beam_height*(X+self.beam.total_beam_width/2)-0.25*self.beam.total_beam_height**2) + q_so
+            rectangular_mask = (Y > -self.beam.total_beam_height/2) & (np.abs(X) > self.beam.total_beam_width)
+            q_s_56 [rectangular_mask] = 0
+
+            combined_data = q_s_12 + q_s_23 + q_s_34 + q_s_56
+            rectangular_mask = (np.abs(Y) < self.beam.total_beam_height/2) & (np.abs(X) < self.beam.total_beam_width/2)
+            combined_data[rectangular_mask] = np.nan
+
+
+            contour = plt.contourf(X, Y, combined_data, 60, cmap='viridis')
+            plt.colorbar(contour, label='Shear Flow (lb/in)')  # Add a colorbar
 
         # Add labels and title
         plt.xlabel('X Position (in)')
@@ -143,26 +210,39 @@ class WingLoad:
 
     def cantilever_graph(self):
         plt.plot(self.beam_load_dataframe.x_loc, self.beam_load_dataframe.Load)
-        plt.title("Load Distribution")
+        plt.title("Lift (Load) Distribution")
+        plt.xlabel('Z Position (in)')
+        plt.ylabel('Lift (lbf)')
         plt.show()
 
         plt.plot(self.beam_load_dataframe.x_loc, self.beam_load_dataframe.Shear)
         plt.title("Shear Diagram")
+        plt.xlabel('Z Position (in)')
+        plt.ylabel('Shear (lbf)')
         plt.show()
 
         plt.plot(self.beam_load_dataframe.x_loc, self.beam_load_dataframe.Moment)
         plt.title("Moment Diagram")
+        plt.xlabel('Z Position (in)')
+        plt.ylabel('Moment (lbf-in)')
         plt.show()
 
         plt.plot(self.beam_load_dataframe.x_loc, self.beam_load_dataframe.Deflection)
         plt.title("Deflection Diagram")
+        plt.xlabel('Z Position (in)')
+        plt.ylabel('Deflection (in)')
         plt.show()
 
         
-I_beam = BeamCrossSection('I', flange_thickness=0.15, flange_width=1.2, web_thickness=0.25, web_height=0.26)
+# I_beam = BeamCrossSection('I', flange_thickness=0.15, flange_width=1.2, web_thickness=0.25, web_height=0.26)
+# OpenSection = WingLoad(I_beam, 25)
 
+Thin_Walled_Rectangle = BeamCrossSection('Thin-Wall Rectangle', width=3.82, height=0.39, thickness=0.1)
+OpenSection = WingLoad(Thin_Walled_Rectangle, 25)
 
-OpenSection = WingLoad(I_beam.beam_Ix, 25)
+# Thin_Walled_Tube = BeamCrossSection('Thin-Wall Circle', radius=0.32, thickness=0.1)
+# OpenSection = WingLoad(Thin_Walled_Tube, 25)
+
 OpenSection.load_function()
 OpenSection.shear_values()
 OpenSection.moment_values()
