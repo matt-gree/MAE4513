@@ -6,7 +6,6 @@ import pandas as pd
 class BeamCrossSection:
     def __init__(self, beam_type, flange_thickness=0, flange_width=0, web_thickness=0, web_height=0, radius=0, width=0, height=0, thickness=0):
         self.beam_type = beam_type
-
         self.flange_thickness = flange_thickness
         self.flange_width = flange_width
         self.web_thickness = web_thickness
@@ -35,24 +34,27 @@ class BeamCrossSection:
             self.beam_Iy = 0.25*np.pi*(self.radius**4 - (self.radius-self.thickness)**4) # in^4
             self.total_beam_width = self.radius*2
             self.total_beam_height = self.radius*2
+            self.area = np.pi*self.radius**2
 
         elif self.beam_type == 'Thin-Wall Rectangle':
             self.beam_Ix = 2*((1/12)*thickness*height**3 + thickness*width*(height/2)**2)
             self.total_beam_width = width
             self.total_beam_height = height
+            self.area = width*height
 
 
 class WingLoad:
-    def __init__(self, beam, beam_length):
+    def __init__(self, beam, beam_length, percent=0):
 
+        self.beam_percent_analysis = percent
         self.beam = beam
         self.beam_Ix = beam.beam_Ix
         self.beam_length = beam_length # inches
         self.modulus_of_elasticity = 10000000 # psi
         self.beam_load_dataframe = pd.DataFrame(columns=['x_loc', 'SectionArea' 'Lift_Coeff', 'Load', 'Shear', 'Moment', 'ddxDeflection', 'Deflection'])
-        self.beam_load_dataframe.x_loc = np.linspace(0, self.beam_length, 1001)
+        self.num_points = 1001
+        self.beam_load_dataframe.x_loc = np.linspace(0, self.beam_length, self. num_points)
         self.step = self.beam_load_dataframe.x_loc[1]
-        print(self.step)
 
     def load_function(self):
         # Flight choices
@@ -115,9 +117,41 @@ class WingLoad:
 
     def shear_at_max_moment(self):
         if self.beam.beam_type == 'I':
+            max_shear = np.abs(self.beam_load_dataframe['Shear']).max()
+            distance_from_AC_to_shear = 0.28 # in
             max_moment = self.beam_load_dataframe['Moment'].max()
             num_points = 1000
             self.beam_Ix
+
+            self.beam_load_dataframe['Torque'] = -self.beam_load_dataframe['Shear']*distance_from_AC_to_shear
+
+            torsion = max_shear*distance_from_AC_to_shear
+
+            # Calculate shear stress for each x value
+            max_shear_stress_torsion = torsion / (2 * self.beam.area * self.beam.thickness)
+
+            # Plot shear stress as a function of x
+            plt.plot(self.beam_load_dataframe['x_loc'], self.beam_load_dataframe['Torque'], label='Torsion')
+
+            # Add labels and title
+            plt.xlabel('z (in)')
+            plt.ylabel('Torque (lbf*in)')  # Assuming torsion has units of force and area is in square meters
+            plt.title('Torque Diagram')
+
+            # Add a legend
+            plt.legend()
+            plt.show()
+
+            max_torsion = max_shear*distance_from_AC_to_shear
+            print(max_torsion)
+
+            max_shear_stress = max_shear/(2*self.beam.beam_Ix)*(self.beam.web_thickness*
+                                                          (self.beam.total_beam_height/2-self.beam.flange_thickness)**2+
+                                                          self.beam.flange_thickness*
+                                                          (self.beam.total_beam_height-self.beam.flange_thickness)
+                                                          *(self.beam.total_beam_width-self.beam.web_thickness))
+            
+            print('Max Shear', max_shear_stress)
 
             print(self.beam.total_beam_height)
             
@@ -133,9 +167,9 @@ class WingLoad:
 
             rectangular_mask = (np.abs(X) >= self.beam.web_thickness/2) & (np.abs(Y) <= (self.beam.total_beam_height-2*self.beam.flange_thickness)/2)
 
+            print('Max Bending Stress', stress_data.max())
             # Apply the mask to stress data
             stress_data[rectangular_mask] = np.nan
-
 
             plt.figure(figsize=(8, 8))
             contour = plt.contourf(X, Y, stress_data, 60, cmap='viridis')
@@ -143,34 +177,117 @@ class WingLoad:
 
         if self.beam.beam_type == 'Thin-Wall Circle':
             num_points = 1000
-            S_y = self.beam_load_dataframe['Shear'].max()
-            q_so =  S_y/(np.pi*self.beam.radius)
+            span_location_shear = -np.abs(self.beam_load_dataframe['Shear'][(self.num_points-1)*self.beam_percent_analysis])
+            print(f'Shear at z={self.beam_length*self.beam_percent_analysis}:', span_location_shear)
+
+            distance_from_AC_to_shear = 0
+
+            span_location_moment = self.beam_load_dataframe['Moment'][(self.num_points-1)*self.beam_percent_analysis]
+            print(f'Moment at z={self.beam_length*self.beam_percent_analysis}:', span_location_moment)
+
+            S_y = np.abs(self.beam_load_dataframe['Shear'][(self.num_points-1)*self.beam_percent_analysis])
+            q_so =  (S_y*self.beam.thickness*self.beam.radius)/(self.beam_Ix)
+
+            self.beam_load_dataframe['Torque'] = -self.beam_load_dataframe['Shear']*distance_from_AC_to_shear
+
+            max_torsion = span_location_shear*distance_from_AC_to_shear
+
+            # Calculate shear stress for each x value
+            span_location_shear_stress_torsion = max_torsion / (2 * self.beam.area * self.beam.thickness)
+
+            # Plot shear stress as a function of x
+            plt.plot(self.beam_load_dataframe['x_loc'], self.beam_load_dataframe['Torque'], label='Torsion')
+
+            # Add labels and title
+            plt.xlabel('z (in)')
+            plt.ylabel('Torque (lbf*in)')  # Assuming torsion has units of force and area is in square meters
+            plt.title('Torque Diagram')
+
+            # Add a legend
+            plt.legend()
+            plt.show()
 
             theta = np.linspace(0, 2 * np.pi, num_points)
             r = np.linspace(0, self.beam.radius, num_points)
             R, Theta = np.meshgrid(r, theta)
 
-            stress_data = -(S_y/self.beam.beam_Ix)*self.beam.radius**2*self.beam.thickness*np.cos(Theta)
-
-            rectangular_mask = (R < self.beam.radius-self.beam.thickness)
-            stress_data[rectangular_mask] = np.nan
-
             X = R * np.cos(Theta)
             Y = R * np.sin(Theta)
 
-            contour = plt.contourf(X, Y, stress_data, 60, cmap='viridis')
-            plt.colorbar(contour, label='Shear Flow (lb/in)')  # Add a colorbar
+            bending_stress_data = (span_location_moment / self.beam_Ix) * Y
+            print(f'Max Direct Stress at z={self.beam_length*self.beam_percent_analysis}:', bending_stress_data.max())
 
+            shear_flow_data = -(S_y/self.beam.beam_Ix)*self.beam.radius**2*self.beam.thickness*np.cos(Theta)+q_so
+
+            print(f'Max Shear Flow at z={self.beam_length*self.beam_percent_analysis}:', shear_flow_data.max())
+            
+            print(f'Max Shear Stress at z={self.beam_length*self.beam_percent_analysis}:', shear_flow_data.max()/self.beam.thickness+span_location_shear_stress_torsion)
+
+            rectangular_mask = (R < self.beam.radius-self.beam.thickness)
+            
+            bending_stress_data[rectangular_mask] = np.nan
+            shear_flow_data[rectangular_mask] = np.nan
+
+            bending_contour = plt.contourf(X, Y, bending_stress_data, 60, cmap='viridis')
+            plt.colorbar(bending_contour, label='Bending Stress (psi)')  # Add a colorbar
+            plt.title('Bending Stress Diagram')
+            plt.axis('equal')
+            plt.show()
+
+            shear_contour = plt.contourf(X, Y, shear_flow_data, 60, cmap='viridis')
+            plt.colorbar(shear_contour, label='Shear Flow (lb/in)')  # Add a colorbar
 
         if self.beam.beam_type == 'Thin-Wall Rectangle':
 
             num_points = 1000
+            max_shear = np.abs(self.beam_load_dataframe['Shear']).max()
+            print(self.beam_load_dataframe['Shear'])
+            print(max_shear)
+            distance_from_AC_to_shear = 0.95
+            torsion = max_shear*distance_from_AC_to_shear
+            shear_stress_torsion = torsion/(2*self.beam.area*self.beam.thickness)
+
+            self.beam_load_dataframe['Torque'] = -self.beam_load_dataframe['Shear']*distance_from_AC_to_shear
+
+            # Calculate shear stress for each x value
+            max_shear_stress_torsion = torsion / (2 * self.beam.area * self.beam.thickness)
+
+            # Plot shear stress as a function of x
+            plt.plot(self.beam_load_dataframe['x_loc'], self.beam_load_dataframe['Torque'], label='Torsion')
+
+            # Add labels and title
+            plt.xlabel('z (in)')
+            plt.ylabel('Torque (lbf*in)')  # Assuming torsion has units of force and area is in square meters
+            plt.title('Torque Diagram')
+
+            # Add a legend
+            plt.legend()
+            plt.show()
+
+            max_moment = self.beam_load_dataframe['Moment'].max()
+
+            x = np.linspace(-self.beam.total_beam_width/2, self.beam.total_beam_width/2, num_points)
+            y = np.linspace(-self.beam.total_beam_height/2, self.beam.total_beam_height/2, num_points)
+            X, Y = np.meshgrid(x, y)
+
+            bending_stress_data = (max_moment / self.beam_Ix) * Y
+            rectangular_mask = (np.abs(Y) <= self.beam.total_beam_height/2-self.beam.thickness) & (np.abs(X) <= self.beam.total_beam_width/2-self.beam.thickness)
+            
+            print('Max Shear', bending_stress_data.max())
+            
+            bending_stress_data[rectangular_mask] = np.nan
+
+            bending_contour = plt.contourf(X, Y, bending_stress_data, 60, cmap='viridis')
+            plt.colorbar(bending_contour, label='Bending Stress (psi)')  # Add a colorbar
+            plt.title('Bending Stress Diagram')
+            plt.axis('equal')
+            plt.show()
 
             x = np.linspace(-self.beam.total_beam_width/2-self.beam.thickness, self.beam.total_beam_width/2+self.beam.thickness, num_points)
             y = np.linspace(-self.beam.total_beam_height/2-self.beam.thickness, self.beam.total_beam_height/2+self.beam.thickness, num_points)
             X, Y = np.meshgrid(x, y)
 
-            S_y = self.beam_load_dataframe['Shear'].max()
+            S_y = -max_shear
             K = -(S_y * self.beam.thickness)/(2*self.beam.beam_Ix)
 
             q_so = K * (self.beam.total_beam_height/3) * (self.beam.total_beam_width-(self.beam.total_beam_height/4))
@@ -192,6 +309,9 @@ class WingLoad:
             q_s_56 [rectangular_mask] = 0
 
             combined_data = q_s_12 + q_s_23 + q_s_34 + q_s_56
+
+            print('Max Shear Stress', combined_data.max()/self.beam.thickness+max_shear_stress_torsion)
+
             rectangular_mask = (np.abs(Y) < self.beam.total_beam_height/2) & (np.abs(X) < self.beam.total_beam_width/2)
             combined_data[rectangular_mask] = np.nan
 
@@ -202,7 +322,7 @@ class WingLoad:
         # Add labels and title
         plt.xlabel('X Position (in)')
         plt.ylabel('Y Position (in)')
-        plt.title('Stress Distribution, Beam Cross Section at location of Max Moment')
+        plt.title('Shear Flow, Beam Cross Section at location of Max Moment')
 
         # Display the plot
         plt.axis('equal')  # Equal aspect ratio to maintain the circular shape
@@ -237,17 +357,17 @@ class WingLoad:
 # I_beam = BeamCrossSection('I', flange_thickness=0.15, flange_width=1.2, web_thickness=0.25, web_height=0.26)
 # OpenSection = WingLoad(I_beam, 25)
 
-Thin_Walled_Rectangle = BeamCrossSection('Thin-Wall Rectangle', width=3.82, height=0.39, thickness=0.1)
-OpenSection = WingLoad(Thin_Walled_Rectangle, 25)
+# Thin_Walled_Rectangle = BeamCrossSection('Thin-Wall Rectangle', width=3.82, height=0.39, thickness=0.1)
+# OpenSection = WingLoad(Thin_Walled_Rectangle, 25)
 
-# Thin_Walled_Tube = BeamCrossSection('Thin-Wall Circle', radius=0.32, thickness=0.1)
-# OpenSection = WingLoad(Thin_Walled_Tube, 25)
+Thin_Walled_Tube = BeamCrossSection('Thin-Wall Circle', radius=0.32, thickness=0.15)
+OpenSection = WingLoad(Thin_Walled_Tube, 25, percent=0.75)
 
 OpenSection.load_function()
 OpenSection.shear_values()
 OpenSection.moment_values()
-print(OpenSection.root_shear)
-print(OpenSection.root_moment)
+print('Root Shear:', OpenSection.root_shear)
+print('Root Moment:', OpenSection.root_moment)
 OpenSection.beam_deflection()
 OpenSection.cantilever_graph()
 OpenSection.shear_at_max_moment()
