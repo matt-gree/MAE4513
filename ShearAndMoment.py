@@ -44,13 +44,17 @@ class BeamCrossSection:
 
 
 class WingLoad:
-    def __init__(self, beam, beam_length, percent=0):
+    def __init__(self, beam, beam_length, material, percent=0,):
 
         self.beam_percent_analysis = percent
         self.beam = beam
         self.beam_Ix = beam.beam_Ix
         self.beam_length = beam_length # inches
-        self.modulus_of_elasticity = 10000000 # psi
+
+        self.modulus_of_elasticity = material['Modulus of Elasticity']
+        self.ultimate_stress = material['Ultimate Stress']
+        self.ultimate_shear = material['Ultimate Shear']
+
         self.beam_load_dataframe = pd.DataFrame(columns=['x_loc', 'SectionArea' 'Lift_Coeff', 'Load', 'Shear', 'Moment', 'ddxDeflection', 'Deflection'])
         self.num_points = 1001
         self.beam_load_dataframe.x_loc = np.linspace(0, self.beam_length, self. num_points)
@@ -116,6 +120,20 @@ class WingLoad:
             self.beam_load_dataframe.loc[index, "Deflection"] = simpson(self.beam_load_dataframe.ddxDeflection[0:index], self.beam_load_dataframe.x_loc[0:index])/(self.modulus_of_elasticity * self.beam_Ix)
 
     def shear_at_max_moment(self):
+        def margin_of_safety(stress, ultimate):
+            return (ultimate/(1.5*stress))-1
+        
+        def contour_plotter(x_data, y_data, contour_data, title, data_label):
+            bending_contour = plt.contourf(x_data, y_data, contour_data, 60, cmap='viridis')
+            plt.colorbar(bending_contour, label=data_label)  # Add a colorbar
+            plt.title(f'{title}, Cross Section at z={self.beam_length*self.beam_percent_analysis}')
+            plt.xlabel('X Position (in)')
+            plt.ylabel('Y Position (in)')
+            plt.axis('equal')
+            plt.savefig(title, dpi=300)
+            plt.show()
+
+        
         if self.beam.beam_type == 'I':
             max_shear = np.abs(self.beam_load_dataframe['Shear']).max()
             distance_from_AC_to_shear = 0.28 # in
@@ -176,17 +194,18 @@ class WingLoad:
             plt.colorbar(contour, label='Stress (psi)')  # Add a colorbar
 
         if self.beam.beam_type == 'Thin-Wall Circle':
+            print(f'The following parameters have been calculated at the beam location z={self.beam_length*self.beam_percent_analysis}:')
             num_points = 1000
             span_location_shear = -np.abs(self.beam_load_dataframe['Shear'][(self.num_points-1)*self.beam_percent_analysis])
-            print(f'Shear at z={self.beam_length*self.beam_percent_analysis}:', span_location_shear)
+            print('Shear:', span_location_shear)
 
             distance_from_AC_to_shear = 0
 
             span_location_moment = self.beam_load_dataframe['Moment'][(self.num_points-1)*self.beam_percent_analysis]
-            print(f'Moment at z={self.beam_length*self.beam_percent_analysis}:', span_location_moment)
+            print('Moment:', span_location_moment)
 
             S_y = np.abs(self.beam_load_dataframe['Shear'][(self.num_points-1)*self.beam_percent_analysis])
-            q_so =  (S_y*self.beam.thickness*self.beam.radius)/(self.beam_Ix)
+            q_so =  (S_y*self.beam.thickness*self.beam.radius**2)/(self.beam_Ix)
 
             self.beam_load_dataframe['Torque'] = -self.beam_load_dataframe['Shear']*distance_from_AC_to_shear
 
@@ -215,27 +234,24 @@ class WingLoad:
             Y = R * np.sin(Theta)
 
             bending_stress_data = (span_location_moment / self.beam_Ix) * Y
-            print(f'Max Direct Stress at z={self.beam_length*self.beam_percent_analysis}:', bending_stress_data.max())
+            print('Max Direct Stress:', bending_stress_data.max())
+            print('Minimum Direct Stress Margin of Safety:', margin_of_safety(bending_stress_data.max(), self.ultimate_stress))
 
-            shear_flow_data = -(S_y/self.beam.beam_Ix)*self.beam.radius**2*self.beam.thickness*np.cos(Theta)+q_so
+            shear_flow_data = (S_y/self.beam.beam_Ix)*self.beam.radius**2*self.beam.thickness*(np.cos(Theta)-1)+q_so
+            print('Max Shear Flow:', shear_flow_data.max())
 
-            print(f'Max Shear Flow at z={self.beam_length*self.beam_percent_analysis}:', shear_flow_data.max())
-            
-            print(f'Max Shear Stress at z={self.beam_length*self.beam_percent_analysis}:', shear_flow_data.max()/self.beam.thickness+span_location_shear_stress_torsion)
+            max_shear_stress = shear_flow_data.max()/self.beam.thickness+span_location_shear_stress_torsion
+            print('Max Shear Stress:', max_shear_stress)
+            print('Minimum Shear Stress Margin of Safety:', margin_of_safety(max_shear_stress, self.ultimate_shear))
 
             rectangular_mask = (R < self.beam.radius-self.beam.thickness)
             
             bending_stress_data[rectangular_mask] = np.nan
             shear_flow_data[rectangular_mask] = np.nan
 
-            bending_contour = plt.contourf(X, Y, bending_stress_data, 60, cmap='viridis')
-            plt.colorbar(bending_contour, label='Bending Stress (psi)')  # Add a colorbar
-            plt.title('Bending Stress Diagram')
-            plt.axis('equal')
-            plt.show()
-
-            shear_contour = plt.contourf(X, Y, shear_flow_data, 60, cmap='viridis')
-            plt.colorbar(shear_contour, label='Shear Flow (lb/in)')  # Add a colorbar
+            contour_plotter(X, Y, bending_stress_data, 'Bending Stress Diagram', 'Bending Stress (psi)')
+            contour_plotter(X, Y, shear_flow_data, 'Shear Flow Diagram', 'Shear Flow (lb/in)')
+            contour_plotter(X, Y, shear_flow_data/self.beam.thickness, 'Shear Stress Diagram', 'Shear Stress (psi)')
 
         if self.beam.beam_type == 'Thin-Wall Rectangle':
 
@@ -319,15 +335,6 @@ class WingLoad:
             contour = plt.contourf(X, Y, combined_data, 60, cmap='viridis')
             plt.colorbar(contour, label='Shear Flow (lb/in)')  # Add a colorbar
 
-        # Add labels and title
-        plt.xlabel('X Position (in)')
-        plt.ylabel('Y Position (in)')
-        plt.title('Shear Flow, Beam Cross Section at location of Max Moment')
-
-        # Display the plot
-        plt.axis('equal')  # Equal aspect ratio to maintain the circular shape
-        plt.show()
-
     def cantilever_graph(self):
         plt.plot(self.beam_load_dataframe.x_loc, self.beam_load_dataframe.Load)
         plt.title("Lift (Load) Distribution")
@@ -361,7 +368,25 @@ class WingLoad:
 # OpenSection = WingLoad(Thin_Walled_Rectangle, 25)
 
 Thin_Walled_Tube = BeamCrossSection('Thin-Wall Circle', radius=0.32, thickness=0.15)
-OpenSection = WingLoad(Thin_Walled_Tube, 25, percent=0.75)
+materials_properties = {
+    'Aluminum': {
+        'Modulus of Elasticity': 10000000,
+        'Ultimate Stress': 76900,
+        'Ultimate Shear': 41000
+    },
+    'Carbon Fiber':{
+        'Modulus of Elasticity': 20000000,
+        'Ultimate Stress': 270000,
+        'Ultimate Shear': 23800
+    },
+    'Titanium':{
+        'Modulus of Elasticity': 16400000,
+        'Ultimate Stress': 170000,
+        'Ultimate Shear': 111000
+    }
+}
+
+OpenSection = WingLoad(Thin_Walled_Tube, 25, materials_properties['Carbon Fiber'], percent=0)
 
 OpenSection.load_function()
 OpenSection.shear_values()
@@ -369,5 +394,5 @@ OpenSection.moment_values()
 print('Root Shear:', OpenSection.root_shear)
 print('Root Moment:', OpenSection.root_moment)
 OpenSection.beam_deflection()
-OpenSection.cantilever_graph()
+# OpenSection.cantilever_graph()
 OpenSection.shear_at_max_moment()
