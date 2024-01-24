@@ -1,52 +1,70 @@
-aircraft_length = 65 #in
-aircraft_length_pixels = 3720
-pixel_to_length_ratio = aircraft_length_pixels/aircraft_length
-aircraft_wingspan = 59 #in
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+
 
 class aircraftcomponent:
-    def __init__(self, weight, locations):
+    def __init__(self, weight, locations, dimesions, color):
         self.total_weight = weight
-        self.component_locations = locations
+        self.component_locations = locations if isinstance(locations[0], (list, set)) else [locations]
+        self.component_dimensions = dimesions
+        self.color = color
         self.x_cg = 0
         self.y_cg = 0
         
         for coordinate in self.component_locations:
-            self.x_cg += (coordinate[0]/pixel_to_length_ratio)/len(self.component_locations)
-            self.y_cg += (coordinate[1]/pixel_to_length_ratio)/len(self.component_locations)
+            self.x_cg += coordinate[0]/len(self.component_locations)
+            self.y_cg += coordinate[1]/len(self.component_locations)
 
         self.cg = [self.x_cg, self.y_cg]
 
+def draw_rectangles(components):
+    fig, ax = plt.subplots()
 
+    for component_name, component in components.items():
+        x, y = component.x_cg, component.y_cg
+        width, height = component.component_dimensions
 
+        # Draw rectangle
+        ax.add_patch(Rectangle((component.x_cg-component.component_dimensions[0]/2, component.y_cg-component.component_dimensions[1]/2),
+            component.component_dimensions[0],
+            component.component_dimensions[1],
+            facecolor = component.color,
+            fill=True))
+
+        # Print component name next to the rectangle
+        ax.text(x + 8, y, component_name, fontsize=8, verticalalignment='center')
+
+    ax.set_aspect('equal', adjustable='box')  # Ensure equal scaling
+    plt.xlabel('X-axis')
+    plt.ylabel('Y-axis')
+    plt.title('Aircraft Components')
+    plt.grid(True)
+    plt.xlim(-20,20)
+    plt.ylim(0,40)
+    ax.plot(x_cg, y_cg, marker='o', markersize=8, label='CG', color='red')
+    plt.show()
 
 
 #Component Dictionary (LBF)
-component_dict = {
-    'structure': aircraftcomponent(4.968, [[0,2025]]),
-    'engine': aircraftcomponent(1.5375, [[0,1950]]),
-    'RC_reciever': aircraftcomponent(0.085, [[0, 200]]),
-    'servo_motors': aircraftcomponent(0.8675, [[0, 900],[-575, 2375], [575, 2375],
-                                            [-375,2650], [375, 2650], [0,2375]]),
-    'control_board': aircraftcomponent(0.075, [[0, 45]]),
-    'battery': aircraftcomponent(0.774, [[0, 1300]]),
-    'exhaust_nozzle': aircraftcomponent(0.0625, [[0, 2700]]),
-    'fuel_tank': aircraftcomponent(0.1, [[0,2150]]),
-    #'fuel': aircraftcomponent(2.7, [[0,2150]]),
-    'landing_gear': aircraftcomponent(0.25, [[0, 700], [-400, 2500], [400, 2500]]),
-    'wiring': aircraftcomponent(0.325, [[0, 2500]]),
-    #'rocket_motor': aircraftcomponent(1.562, [[0, 3000]]),
-    'rato_bracket': aircraftcomponent(0.1, [[-775, 2275], [775, 2275]])
+component_dict_traditional = {
+    'payload': aircraftcomponent(3, [0,2.25], (2, 3.5), 'black'),
+    'RmleicNB20': aircraftcomponent(1.32, [0,5.5], (4.5, 2.5), 'dodgerblue'),
+    'Reciever JettiDuplex System': aircraftcomponent(0.05, [0,23], (2, 1.1), 'pink'),
+    'Here2 GPS': aircraftcomponent(0.1, [0,5.5], (3, 3), 'limegreen'),
+    'Orange Cube': aircraftcomponent(0.16, [0,24], (3.75, 1.75), 'darkorange'),
+    'Fuel': aircraftcomponent(1, [0, 14], (7, 12), 'gold'),
+    'Battery': aircraftcomponent(.3, [0, 29], (4.13, 1.34), 'crimson'),
+    'Fuel Pump': aircraftcomponent(.3, [0, 27], (0.75, 1.5), 'darkgoldenrod'),
+    'ECU': aircraftcomponent(.2, [0,29], (3.42, 2.05), 'blue'),
+    'Engine': aircraftcomponent(1.6, [0, 36.5], (3, 7.2), 'gray')
 }
 
-# Rocket Dimensions
-# Length 8.59 in 
-# Diameter 2.13 in
 
 x_cg_num = 0
 y_cg_num = 0
 mass_tot = 0
 
-for items, value in component_dict.items():
+for items, value in component_dict_traditional.items():
     x_cg_num += (value.x_cg*value.total_weight)
     y_cg_num += (value.y_cg*value.total_weight)
     mass_tot += value.total_weight
@@ -56,4 +74,5 @@ for items, value in component_dict.items():
 
 print(x_cg)
 print(y_cg)
-print(y_cg*pixel_to_length_ratio)
+
+draw_rectangles(component_dict_traditional)
